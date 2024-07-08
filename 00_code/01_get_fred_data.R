@@ -39,6 +39,8 @@ gdp_raw <- data.table(
 )
 )
 
+setnames(gdp_raw, "date", "quarter")
+
 ###### Current VINTAGE #####
 
 gdp_current <- gdp_raw[realtime_end %in% "9999-12-31",]
@@ -57,7 +59,7 @@ na_diff <- function(x){
 gdp_current[, paste0(transform_vars, "_gr"):=lapply(.SD, na_diff), .SDcols = paste0(transform_vars, "_log")]
 
 gdp_gr <- na.omit(data.table(
-  quarter = gdp_current[, date],
+  quarter = gdp_current[, quarter],
   gdp_gr = gdp_current[, value_gr]
 ))
 
