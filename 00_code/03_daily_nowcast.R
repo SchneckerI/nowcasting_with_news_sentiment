@@ -1,6 +1,8 @@
 
 # Initializing ------------------------------------------------------------
 
+rm(list = ls())
+
 # install.packages("pacman")
 library(pacman)
 
@@ -15,6 +17,13 @@ p_load(
 na_diff <- function(x){
   c(NA, diff(x)*100)
 }
+
+# normal growth rate function
+
+gr_fun <- function(x){
+  c(NA,(diff(x)/(x[1:length(x)-1]))*100)
+}
+
 
 # Load data ------------------------------------------------------------
 
@@ -33,18 +42,25 @@ load(file = paste0(tidy_data_path,"real_time_gdp.RData"))
 ## control centre
 
 nowcast_start <- which(daily_data[, day] %in% "2000-01-01") # change date of nowcast start
-nowcast_end <- nrow(daily_data)
+# nowcast_end <- nrow(daily_data) # full sample 
+nowcast_end <- which(daily_data[, day] %in% "2019-12-31") # truncate: change date of nowcast end
+
 
 ## loop prep
 
 # create placeholder list with one element for each day
 nowcast_results <- vector("list", length = length(nowcast_start:nowcast_end))
 
-
+# # test
+# 
+i <- which(daily_data$day %in% "2001-05-01")
+# nowcast_results[[i]]
 ## loop start
 
 for(i in nowcast_start:nowcast_end){
-print(i) # for observing progress
+  
+  k <- (i-nowcast_start + 1)
+print(k) # for observing progress
   
 curr_day <- as.character(daily_data[i, day]) # i_start = 2000-01-01
 
@@ -56,20 +72,24 @@ curr_pmi_release <- daily_data[i, pmi_available]
 current_nowcast_dt <- daily_data[1:i]
 
 current_nowcast_dt <- current_nowcast_dt[doq %in% curr_doq,] # filter for obs with same doq
-current_nowcast_dt <- current_nowcast_dt[pmi_available %in% curr_pmi_release,] # filter for obs with same pmi release cycle stage
+# current_nowcast_dt <- current_nowcast_dt[pmi_available %in% curr_pmi_release,] # filter for obs with same pmi release cycle stage
+# current_nowcast_dt <- current_nowcast_dt[pmi_available == pmi_usual,] # filter for only observations with normal pmi release cycle
 
 curr_gdp_vintage <- real_time_gdp[[curr_day]]
 
-curr_gdp_vintage[, gdp_vintage_gr:= na_diff(log(value))]
+# curr_gdp_vintage[, gdp_vintage_gr:= na_diff(log(value))] # log diff growth
+curr_gdp_vintage[, gdp_vintage_gr:= gr_fun(value)] # normal growth
 
 nowcast_dt <- current_nowcast_dt[curr_gdp_vintage, , on = .(quarter = quarter)]
 
 nowcast_dt <- curr_gdp_vintage[current_nowcast_dt, , on = .(quarter = quarter)]
-nowcast_dt <- nowcast_dt[,.(day, quarter, doq, pmi, pmi_available,news, gdp_vintage_gr, gdp_gr)]
+nowcast_dt <- nowcast_dt[,.(day, quarter, doq, pmi, pmi_available, news, news_aoq, news_diff_aoq, gdp_vintage_gr, gdp_gr)]
 
 # split into in and out of sample
 
 nowcast_in_dt <- na.omit(nowcast_dt)
+
+if(nrow(nowcast_in_dt) > 0){
 
 nowcast_out_dt <- nowcast_dt[which(is.na(nowcast_dt[,.(gdp_vintage_gr)])),] # filters obs where no gdp data was available
 
@@ -78,7 +98,7 @@ nowcast_out_dt <- nowcast_dt[which(is.na(nowcast_dt[,.(gdp_vintage_gr)])),] # fi
 nowcast_model_pmi_bench <- lm(gdp_vintage_gr ~ pmi, nowcast_in_dt) # pmi benchmark
 summary(nowcast_model_pmi_bench)
 
-nowcast_model_news <- lm(gdp_vintage_gr ~ pmi + news, nowcast_in_dt) # news 
+nowcast_model_news <- lm(gdp_vintage_gr ~ pmi + news_aoq, nowcast_in_dt) # news 
 summary(nowcast_model_news)
 
 # prediction
@@ -100,7 +120,7 @@ nowcast_news_mse <- mean((nowcast_out_dt$gdp_gr - nowcast_news_pred)^2)
 
 # summary dt for nowcast
 
-nowcast_results[[i]] <- data.table(
+nowcast_results[[k]] <- data.table(
   day = curr_day,
   quarter = nowcast_out_dt[, quarter],
   doq = curr_doq,
@@ -111,16 +131,32 @@ nowcast_results[[i]] <- data.table(
   se_news = nowcast_news_se
 )
 
-nowcast_results[[i]][, nowcast_number:= 1:.N]
+nowcast_results[[k]][, nowcast_number:= 1:.N]
+
+
+} else{
+  nowcast_results[[k]] <- data.table(
+    day = curr_day,
+    quarter = nowcast_out_dt[, quarter],
+    doq = curr_doq,
+    gdp_gr = nowcast_out_dt[, gdp_gr],
+    prediction_pmi_bench = NA,
+    prediction_news = NA,
+    se_pmi_bench = NA,
+    se_news = NA,
+    nowcast_number= NA
+  )
+}
+
 
 }
 
 #### loop end
 nowcast_results_dt <- NULL
 
-for (j in nowcast_start:nowcast_end) {
+for (j in 1:length(nowcast_results)) {
   print(j)
-  if(j == nowcast_start){
+  if(j == 1){
     nowcast_results_dt <- nowcast_results[[j]]
   } else{
     nowcast_results_dt <- rbind(nowcast_results_dt, nowcast_results[[j]])
@@ -152,11 +188,33 @@ plot(nowcast_mse_nextnext_release$doq, nowcast_mse_nextnext_release$mse_reductio
 
 
 plot(nowcast_mse$doq, nowcast_mse$mse_reduction)
+plot(nowcast_mse$doq, nowcast_mse$mse_pmi_bench)
+plot(nowcast_mse$doq, nowcast_mse$mse_news)
 
 ### save results
 
 write.csv(nowcast_results_dt, file = paste0(results_path, "nowcast_results_01.csv"))
 
+### diagnostics
+
+nowcast_results_dt[se_pmi_bench > se_news,]
+
+nowcast_results_dt[se_news > se_pmi_bench,]
+
+max(na.omit(nowcast_results_dt[, mse_news]))
+
+nowcast_results_dt[, mse_news]
+
+mse_max <- which(nowcast_results_dt[, mse_news] %in% max(na.omit(nowcast_results_dt[, mse_news])))
+
+nowcast_results_dt[mse_max,]
+
+nowcast_results_dt[mse_news %in% 0.5321892, ]
+
+test_dt <- nowcast_results_dt[doq %in% 33 , ]
+
+daily_data[day %in% "2001-05-01", ]
+daily_data[]
 
 # single nowcast
 

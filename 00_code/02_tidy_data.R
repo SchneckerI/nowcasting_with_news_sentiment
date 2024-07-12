@@ -101,6 +101,27 @@ daily_data <- na.omit(daily_data)
 
 setnames(daily_data, "News Sentiment", "news") # for easier handling later
 
+## Adapt news daily data to cumulative mean of quarter ------------------------------------------------------------
+
+daily_data[, news_cumsum:= cumsum(news), by = quarter]
+daily_data[, news_aoq:= news_cumsum/doq, by = quarter]
+daily_data[1:29, news_aoq:= news_cumsum/(1:29)] # correct first quarter
+
+daily_data[, news_diff:= c(NA,diff(news))*100]
+daily_data[, news_diff_cumsum:= cumsum(news_diff), by = quarter]
+daily_data[, news_diff_aoq:= news_diff_cumsum/ doq, by = quarter]
+
+daily_data[,news_cumsum:= NULL] # remove cumsum column again
+daily_data[,news_diff_cumsum:= NULL] # remove diff cumsum column again
+
+daily_data <- na.omit(daily_data)
+daily_data[, year:= year(day)]
+daily_data[, qoy:= quarter(day)]
+daily_data[, pmi_usual:= median(pmi_available), by = .(doq, qoy)] # usual release pmi cycle per quarter 
+
+plot(daily_data$day, daily_data$news_aoq, type = "l")
+plot(daily_data$day, daily_data$pmi, type = "l")
+
 # save daily pmi data
 write.csv(daily_data, file = paste0(tidy_data_path,"daily_data.csv"),
           row.names = FALSE)

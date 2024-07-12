@@ -56,7 +56,15 @@ na_diff <- function(x){
   c(NA, diff(x)*100)
 }
 
-gdp_current[, paste0(transform_vars, "_gr"):=lapply(.SD, na_diff), .SDcols = paste0(transform_vars, "_log")]
+# normal growth rate function
+
+gr_fun <- function(x){
+  c(NA,(diff(x)/(x[1:length(x)-1]))*100)
+}
+
+# gdp_current[, paste0(transform_vars, "_gr"):=lapply(.SD, na_diff), .SDcols = paste0(transform_vars, "_log")]
+gdp_current[, paste0(transform_vars, "_gr"):=lapply(.SD, gr_fun), .SDcols = paste0(transform_vars)]
+
 
 gdp_gr <- na.omit(data.table(
   quarter = gdp_current[, quarter],
