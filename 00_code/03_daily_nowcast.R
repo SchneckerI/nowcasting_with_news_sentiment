@@ -10,7 +10,8 @@ p_load(
   readr,
   readxl,
   data.table,
-  lubridate
+  lubridate,
+  ggplot2
 )
 
 # diff function for growth rate
@@ -53,7 +54,7 @@ nowcast_results <- vector("list", length = length(nowcast_start:nowcast_end))
 
 # # test
 # 
-i <- which(daily_data$day %in% "2001-05-01")
+# i <- which(daily_data$day %in% "2001-05-01")
 # nowcast_results[[i]]
 ## loop start
 
@@ -69,11 +70,40 @@ curr_doq <- daily_data[i, doq]
 curr_pmi_release <- daily_data[i, pmi_available]
 
 
-current_nowcast_dt <- daily_data[1:i]
+current_daily_dt <- daily_data[1:i]
+
+current_nowcast_dt <- current_daily_dt
 
 current_nowcast_dt <- current_nowcast_dt[doq %in% curr_doq,] # filter for obs with same doq
-# current_nowcast_dt <- current_nowcast_dt[pmi_available %in% curr_pmi_release,] # filter for obs with same pmi release cycle stage
+
+current_nowcast_obs <- nrow(current_nowcast_dt)
+current_discard <- current_nowcast_dt[!(pmi_available %in% curr_pmi_release),]
+
+current_add_index_ahead <- current_discard$day + days(1)
+current_add_index_back <- current_discard$day - days(1)
+
+
+current_add_data <- current_daily_dt[day %in% current_add_index_ahead | day %in% current_add_index_back,]
+current_add_data <- current_add_data[pmi_available %in% curr_pmi_release,]
+
+current_nowcast_dt <- current_nowcast_dt[pmi_available %in% curr_pmi_release,] # filter for obs with same pmi release cycle stage
 # current_nowcast_dt <- current_nowcast_dt[pmi_available == pmi_usual,] # filter for only observations with normal pmi release cycle
+
+current_nowcast_dt <- rbind(current_add_data, current_nowcast_dt)
+
+while(!(nrow(current_nowcast_dt) == current_nowcast_obs)){
+  
+  current_add_index_ahead <- current_add_index_ahead[which(!(current_add_index_ahead %in% current_nowcast_dt$day))]
+  current_add_index_back <- current_add_index_back[which(!(current_add_index_back %in% current_nowcast_dt$day))]
+  
+  current_add_index_ahead <- current_add_index_ahead + days(1)
+  current_add_index_back <- current_add_index_back - days(1)  
+  
+  current_add_data <- current_daily_dt[day %in% current_add_index_ahead | day %in% current_add_index_back,]
+  current_add_data <- current_add_data[pmi_available %in% curr_pmi_release,]
+  current_nowcast_dt <- rbind(current_add_data, current_nowcast_dt)
+}
+
 
 curr_gdp_vintage <- real_time_gdp[[curr_day]]
 
@@ -181,6 +211,17 @@ nowcast_results_dt[,mse_news:= mean(se_news), by = .(doq)]
 nowcast_mse <- unique(nowcast_results_dt[,.(doq, nowcast_number, mse_pmi_bench, mse_news)])
 nowcast_mse[, mse_reduction:= mse_pmi_bench - mse_news]
 
+## only real "nowcasts" --> quarter of date of nowcast = quarter for which nowcast is for
+
+nowcast_results_dt[, quarter_of_nc:= floor_date(as.Date(day), unit = "quarter")]
+nowcast_results_dt_rn <- nowcast_results_dt[quarter == quarter_of_nc,]
+
+nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
+nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
+
+nowcast_rn_mse <- unique(nowcast_results_dt_rn[,.(doq, mse_pmi_bench, mse_news)])
+nowcast_rn_mse <- nowcast_rn_mse[doq < 91,] # discard days of quarter that do not exist in every quarter
+
 ## simple plot
 
 plot(nowcast_mse_next_release$doq, nowcast_mse_next_release$mse_reduction, type = "l")
@@ -188,9 +229,37 @@ plot(nowcast_mse_nextnext_release$doq, nowcast_mse_nextnext_release$mse_reductio
 
 
 plot(nowcast_mse$doq, nowcast_mse$mse_reduction)
-plot(nowcast_mse$doq, nowcast_mse$mse_pmi_bench)
+plot(nowcast_mse$doq, nowcast_mse$mse_pmi_bench, type = "p")
 plot(nowcast_mse$doq, nowcast_mse$mse_news)
 
+plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_pmi_bench)
+plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_news)
+
+ggplot(data = nowcast_rn_mse, aes())
+
+# Create the ggplot
+ggplot(nowcast_rn_mse, aes(x = doq)) +
+  # Add the first time series
+  geom_line(aes(y = mse_pmi_bench, color = 'pmi')) +
+  # Add the second time series
+  geom_line(aes(y = mse_news, color = 'news')) +
+  # Add the area between the two lines
+  geom_ribbon(aes(ymin = pmin(mse_pmi_bench, mse_news), ymax = pmax(mse_pmi_bench, mse_news)), fill = 'grey', alpha = 0.4) +
+  # Add labels and title
+  labs(title = 'Forecast Error throughout the Quarter',
+       x = 'Day of Quarter',
+       y = 'Mean Squared Error') +
+  # Customize the theme
+  theme_minimal()+
+  # Customize the colors and legend
+  scale_color_manual(name = 'OLS Model', values = c('pmi' = 'blue', 'news' = 'red')) #+
+  # Move the legend to the bottom
+  # Move the legend inside the plot frame at the top right
+  #theme(legend.position.inside = c(1, 1), legend.justification = c(1, 1))
+  
+ggsave(filename = paste0(results_path, "ols_mse.png"),
+       bg = "white")
+?ggsave
 ### save results
 
 write.csv(nowcast_results_dt, file = paste0(results_path, "nowcast_results_01.csv"))
@@ -215,6 +284,8 @@ test_dt <- nowcast_results_dt[doq %in% 33 , ]
 
 daily_data[day %in% "2001-05-01", ]
 daily_data[]
+
+news_diff
 
 # single nowcast
 
