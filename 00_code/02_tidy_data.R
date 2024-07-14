@@ -1,5 +1,7 @@
 # Initializing ------------------------------------------------------------
 
+rm(list = ls())
+
 # install.packages("pacman")
 library(pacman)
 
@@ -13,12 +15,20 @@ p_load(
 # Set locale to English for better date handling
 Sys.setlocale("LC_TIME", "C")
 
+# growth rate
+na_diff <- function(x){
+  c(NA, diff(x)*100)
+}
 
 # Loading data ------------------------------------------------------------
 
 raw_data_path <- "01_data_raw/"
 
 tidy_data_path <- "02_data_tidy/"
+
+# load gdp gr
+gdp_gr <- as.data.table(read.csv(paste0(tidy_data_path, "gdp_latest_vintage.csv")))
+gdp_gr[, quarter:= as.Date(quarter)]
 
 ## News data ------------------------------------------------------------
 
@@ -88,9 +98,69 @@ write.csv(pmi_daily, file = paste0(tidy_data_path,"pmi_daily.csv"),
 # simple plot
 plot(pmi_daily$day, pmi_daily$pmi, type = "l")
 
+## cci data ------------------------------------------------------------
+
+cci_raw <- as.data.table(
+  read_excel(paste0(raw_data_path,"cci.xlsx"), 
+             sheet = "First Release Data", skip = 3)
+)
+
+cci_raw <- na.omit(cci_raw)
+
+cci_raw[,Period:= paste("1",Period, sep =" ")]
+cci_raw[,month:= as.Date(Period, format = "%d %b %Y")]
+
+cci_raw[,release_date:= as.Date(`Original Release Date`, format = "%d %b %Y")]
+
+cci_raw[,quarter:=floor_date(month, unit = "quarter")]
+setorder(cci_raw, "release_date") # reorder from earliest to latest to avoid confusion
+
+cci_raw[, cci_monthly:=as.numeric(`First Release`)]
+
+## transform into daily series
+
+daily_index_cci <- seq.Date(from = as.Date(min(cci_raw$release_date)),
+                            to = today(),
+                            by = "days")
+
+cci_daily <- data.table(day = daily_index_cci,
+                        cci= NA)
+
+cci_daily[,quarter:= floor_date(day, unit = "quarter")]
+
+
+# daily cci loop
+
+cci_daily_value <- numeric(length(daily_index_cci))
+cci_values_available <- numeric(length(daily_index_cci))
+
+for (i in 1:length(daily_index_cci)) {
+  current_quarter_cci_values <- which(cci_raw[,quarter] %in% cci_daily[i, quarter] & cci_daily[i, day] >= cci_raw[,release_date])
+  if(is.na(current_quarter_cci_values[1])){
+    last_month <- cci_daily[i, quarter] - months(1)
+    cci_daily_value[i] <- cci_raw[month %in% last_month, cci_monthly]
+    cci_values_available[i] <- 0
+  } else{
+    cci_daily_value[i] <- mean(cci_raw[current_quarter_cci_values, cci_monthly])
+    cci_values_available[i] <- length(current_quarter_cci_values)
+  }
+}
+
+cci_daily[,cci:=cci_daily_value]
+cci_daily[,cci_available:=cci_values_available]
+
+# save daily cci data
+write.csv(cci_daily, file = paste0(tidy_data_path,"cci_daily.csv"),
+          row.names = FALSE)
+
+# simple plot
+plot(cci_daily$day, cci_daily$cci, type = "l")
+
+
 ## Merge daily data ------------------------------------------------------------
 
-daily_data <- pmi_daily[news_sentiment_raw, , on = .(day = date)]
+daily_data <- pmi_daily[news_sentiment_raw, , on = .(day = date)][cci_daily, ,on= .(day = day)]
+
 
 daily_data[, quarter:= floor_date(day, unit = "quarter")]
 daily_data[, doq:= 1:.N, by = quarter]
@@ -114,10 +184,17 @@ daily_data[, news_diff_aoq:= news_diff_cumsum/ doq, by = quarter]
 daily_data[,news_cumsum:= NULL] # remove cumsum column again
 daily_data[,news_diff_cumsum:= NULL] # remove diff cumsum column again
 
+# daily_data[,news_gr:= na_diff(log(news)), by = doq] # qoq news gr (log)
+# daily_data[,news_aoq_gr:= na_diff(log(news_aoq)), by = doq] # qoq news aoq gr (log)
+# daily_data[,.(quarter,news_aoq,news_aoq_gr), by = doq] # check functionality of gr by doq
+
 daily_data <- na.omit(daily_data)
 daily_data[, year:= year(day)]
 daily_data[, qoy:= quarter(day)]
-daily_data[, pmi_usual:= median(pmi_available), by = .(doq, qoy)] # usual release pmi cycle per quarter 
+# daily_data[, pmi_usual:= median(pmi_available), by = .(doq, qoy)] # usual release pmi cycle per quarter 
+# daily_data[, cci_usual:= median(cci_available), by = .(doq, qoy)]# usual release cci cycle per quarter 
+
+daily_data[, i.quarter:= NULL]
 
 plot(daily_data$day, daily_data$news_aoq, type = "l")
 plot(daily_data$day, daily_data$pmi, type = "l")

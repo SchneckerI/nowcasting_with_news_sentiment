@@ -42,7 +42,7 @@ load(file = paste0(tidy_data_path,"real_time_gdp.RData"))
 
 ## control centre
 
-nowcast_start <- which(daily_data[, day] %in% "2000-01-01") # change date of nowcast start
+nowcast_start <- which(daily_data[, day] %in% "2007-01-01") # change date of nowcast start
 # nowcast_end <- nrow(daily_data) # full sample 
 nowcast_end <- which(daily_data[, day] %in% "2019-12-31") # truncate: change date of nowcast end
 
@@ -113,7 +113,7 @@ curr_gdp_vintage[, gdp_vintage_gr:= gr_fun(value)] # normal growth
 nowcast_dt <- current_nowcast_dt[curr_gdp_vintage, , on = .(quarter = quarter)]
 
 nowcast_dt <- curr_gdp_vintage[current_nowcast_dt, , on = .(quarter = quarter)]
-nowcast_dt <- nowcast_dt[,.(day, quarter, doq, pmi, pmi_available, news, news_aoq, news_diff_aoq, gdp_vintage_gr, gdp_gr)]
+nowcast_dt <- nowcast_dt[,.(day, quarter, doq, pmi, pmi_available, cci, cci_available, news, news_aoq, news_diff_aoq, gdp_vintage_gr, gdp_gr)]
 
 # split into in and out of sample
 
@@ -128,13 +128,17 @@ nowcast_out_dt <- nowcast_dt[which(is.na(nowcast_dt[,.(gdp_vintage_gr)])),] # fi
 nowcast_model_pmi_bench <- lm(gdp_vintage_gr ~ pmi, nowcast_in_dt) # pmi benchmark
 summary(nowcast_model_pmi_bench)
 
-nowcast_model_news <- lm(gdp_vintage_gr ~ pmi + news_aoq, nowcast_in_dt) # news 
+nowcast_model_news <- lm(gdp_vintage_gr ~ pmi + news_aoq, nowcast_in_dt) # news aoq
 summary(nowcast_model_news)
+
+nowcast_model_news_cci <- lm(gdp_vintage_gr ~ pmi + news_aoq + cci, nowcast_in_dt) # news aoq + cci
 
 # prediction
 nowcast_pmi_bench_pred <- predict(nowcast_model_pmi_bench, nowcast_out_dt)
 
 nowcast_news_pred <- predict(nowcast_model_news, nowcast_out_dt)
+
+nowcast_news_cci_pred <- predict(nowcast_model_news_cci, nowcast_out_dt)
 
 # SE
 
@@ -142,11 +146,13 @@ nowcast_pmi_bench_se <- (nowcast_out_dt$gdp_gr - nowcast_pmi_bench_pred)^2
 
 nowcast_news_se <- (nowcast_out_dt$gdp_gr - nowcast_news_pred)^2
 
-# MSE
+nowcast_news_cci_se <- (nowcast_out_dt$gdp_gr - nowcast_news_cci_pred)^2
 
-nowcast_pmi_bench_mse <- mean((nowcast_out_dt$gdp_gr - nowcast_pmi_bench_pred)^2)
-
-nowcast_news_mse <- mean((nowcast_out_dt$gdp_gr - nowcast_news_pred)^2)
+# # MSE
+# 
+# nowcast_pmi_bench_mse <- mean((nowcast_out_dt$gdp_gr - nowcast_pmi_bench_pred)^2)
+# 
+# nowcast_news_mse <- mean((nowcast_out_dt$gdp_gr - nowcast_news_pred)^2)
 
 # summary dt for nowcast
 
@@ -157,8 +163,10 @@ nowcast_results[[k]] <- data.table(
   gdp_gr = nowcast_out_dt[, gdp_gr],
   prediction_pmi_bench = nowcast_pmi_bench_pred,
   prediction_news = nowcast_news_pred,
+  prediction_news_cci = nowcast_news_cci_pred,
   se_pmi_bench = nowcast_pmi_bench_se,
-  se_news = nowcast_news_se
+  se_news = nowcast_news_se,
+  se_news_cci = nowcast_news_cci_se
 )
 
 nowcast_results[[k]][, nowcast_number:= 1:.N]
@@ -172,8 +180,10 @@ nowcast_results[[k]][, nowcast_number:= 1:.N]
     gdp_gr = nowcast_out_dt[, gdp_gr],
     prediction_pmi_bench = NA,
     prediction_news = NA,
+    prediction_news_cci = NA,
     se_pmi_bench = NA,
     se_news = NA,
+    se_news_cci = NA,
     nowcast_number= NA
   )
 }
@@ -193,34 +203,92 @@ for (j in 1:length(nowcast_results)) {
   }
 }
 
-## calculate mse for each doq and separately for different nowcast numbers
-
-nowcast_results_dt[,mse_pmi_bench:= mean(se_pmi_bench), by = .(doq, nowcast_number)]
-nowcast_results_dt[,mse_news:= mean(se_news), by = .(doq, nowcast_number)]
-
-nowcast_mse <- unique(nowcast_results_dt[,.(doq, nowcast_number, mse_pmi_bench, mse_news)])
-nowcast_mse[, mse_reduction:= mse_pmi_bench - mse_news]
-
-nowcast_mse_next_release <- nowcast_mse[nowcast_number %in% 1, ]
-nowcast_mse_nextnext_release <- nowcast_mse[nowcast_number %in% 2, ]
-
-## calculate mse for each doq
-
-nowcast_results_dt[,mse_pmi_bench:= mean(se_pmi_bench), by = .(doq)]
-nowcast_results_dt[,mse_news:= mean(se_news), by = .(doq)]
-nowcast_mse <- unique(nowcast_results_dt[,.(doq, nowcast_number, mse_pmi_bench, mse_news)])
-nowcast_mse[, mse_reduction:= mse_pmi_bench - mse_news]
+# ## calculate mse for each doq and separately for different nowcast numbers
+# 
+# nowcast_results_dt[,mse_pmi_bench:= mean(se_pmi_bench), by = .(doq, nowcast_number)]
+# nowcast_results_dt[,mse_news:= mean(se_news), by = .(doq, nowcast_number)]
+# 
+# nowcast_mse <- unique(nowcast_results_dt[,.(doq, nowcast_number, mse_pmi_bench, mse_news)])
+# nowcast_mse[, mse_reduction:= mse_pmi_bench - mse_news]
+# 
+# nowcast_mse_next_release <- nowcast_mse[nowcast_number %in% 1, ]
+# nowcast_mse_nextnext_release <- nowcast_mse[nowcast_number %in% 2, ]
+# 
+# ## calculate mse for each doq
+# 
+# nowcast_results_dt[,mse_pmi_bench:= mean(se_pmi_bench), by = .(doq)]
+# nowcast_results_dt[,mse_news:= mean(se_news), by = .(doq)]
+# nowcast_mse <- unique(nowcast_results_dt[,.(doq, nowcast_number, mse_pmi_bench, mse_news)])
+# nowcast_mse[, mse_reduction:= mse_pmi_bench - mse_news]
 
 ## only real "nowcasts" --> quarter of date of nowcast = quarter for which nowcast is for
 
 nowcast_results_dt[, quarter_of_nc:= floor_date(as.Date(day), unit = "quarter")]
 nowcast_results_dt_rn <- nowcast_results_dt[quarter == quarter_of_nc,]
 
+# for loop
+
+sample_period <- "great_recession"
+
+if(sample_period == "all"){
+
 nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
 nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
+nowcast_results_dt_rn[, mse_news_cci:= mean(se_news_cci), by = doq]
 
-nowcast_rn_mse <- unique(nowcast_results_dt_rn[,.(doq, mse_pmi_bench, mse_news)])
+}
+
+if(sample_period == "great_recession"){
+  nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) < 2010,]
+  
+  nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
+  nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
+  nowcast_results_dt_rn[, mse_news_cci:= mean(se_news_cci), by = doq]
+  
+}
+
+if(sample_period == "2010s"){
+  nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) > 2009 & year(quarter) < 2020,]
+  
+  nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
+  nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
+  nowcast_results_dt_rn[, mse_news_cci:= mean(se_news_cci), by = doq]
+  
+}
+
+if(sample_period == "2020s"){
+  nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) > 2019,]
+  
+  nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
+  nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
+  nowcast_results_dt_rn[, mse_news_cci:= mean(se_news_cci), by = doq]
+  
+}
+
+
+nowcast_rn_mse <- unique(nowcast_results_dt_rn[,.(doq, mse_pmi_bench, mse_news, mse_news_cci)])
 nowcast_rn_mse <- nowcast_rn_mse[doq < 91,] # discard days of quarter that do not exist in every quarter
+
+if (sample_period == "all"){
+nowcast_sample_mse <- data.table(
+  doq = nowcast_rn_mse[, doq],
+  sample = sample_period,
+  pmi_bench = nowcast_rn_mse[, mse_pmi_bench],
+  news = nowcast_rn_mse[, mse_news],
+  news_cci = nowcast_rn_mse[, mse_news_cci],
+)
+
+} else{
+  nowcast_sample_mse_current <- data.table(
+    doq = nowcast_rn_mse[, doq],
+    sample = sample_period,
+    pmi_bench = nowcast_rn_mse[, mse_pmi_bench],
+    news = nowcast_rn_mse[, mse_news],
+    news_cci = nowcast_rn_mse[, mse_news_cci],
+  )
+  nowcast_sample_mse <- rbind(nowcast_sample_mse_current, nowcast_sample_mse)
+}
+
 
 ## simple plot
 
@@ -234,6 +302,7 @@ plot(nowcast_mse$doq, nowcast_mse$mse_news)
 
 plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_pmi_bench)
 plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_news)
+plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_news_cci)
 
 ggplot(data = nowcast_rn_mse, aes())
 
