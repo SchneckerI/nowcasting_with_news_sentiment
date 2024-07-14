@@ -43,9 +43,10 @@ load(file = paste0(tidy_data_path,"real_time_gdp.RData"))
 ## control centre
 
 nowcast_start <- which(daily_data[, day] %in% "2007-01-01") # change date of nowcast start
-# nowcast_end <- nrow(daily_data) # full sample 
-nowcast_end <- which(daily_data[, day] %in% "2019-12-31") # truncate: change date of nowcast end
+nowcast_end <- nrow(daily_data) # full sample
+# nowcast_end <- which(daily_data[, day] %in% "2019-12-31") # truncate: change date of nowcast end
 
+window <- "fixed"
 
 ## loop prep
 
@@ -115,9 +116,25 @@ nowcast_dt <- current_nowcast_dt[curr_gdp_vintage, , on = .(quarter = quarter)]
 nowcast_dt <- curr_gdp_vintage[current_nowcast_dt, , on = .(quarter = quarter)]
 nowcast_dt <- nowcast_dt[,.(day, quarter, doq, pmi, pmi_available, cci, cci_available, news, news_aoq, news_diff_aoq, gdp_vintage_gr, gdp_gr)]
 
-# split into in and out of sample
+## split into in and out of sample
 
 nowcast_in_dt <- na.omit(nowcast_dt)
+
+current_in_obs <- nrow(nowcast_in_dt)
+
+# fixed or expanding window
+
+if(window == "fixed"){
+
+if(k == 1){
+  fixed_window_obs <- nrow(nowcast_in_dt)
+} else{
+  nowcast_in_dt <- nowcast_in_dt[(current_in_obs-fixed_window+1):current_in_obs,]
+  
+}
+
+}
+
 
 if(nrow(nowcast_in_dt) > 0){
 
@@ -226,38 +243,39 @@ for (j in 1:length(nowcast_results)) {
 nowcast_results_dt[, quarter_of_nc:= floor_date(as.Date(day), unit = "quarter")]
 nowcast_results_dt_rn <- nowcast_results_dt[quarter == quarter_of_nc,]
 
-# for loop
+# for loop over samples
+# samp <- 2
+sample_periods <- c("covid", "great_recession", "2010s", "post_covid")
 
-sample_period <- "great_recession"
+for (samp in 1:length(sample_periods)) {
+  
 
-if(sample_period == "all"){
+sample_period <- sample_periods[samp]
+
+
+if(sample_period == "covid"){
+nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) < 2023 & year(quarter) > 2019,]
 
 nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
 nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
 nowcast_results_dt_rn[, mse_news_cci:= mean(se_news_cci), by = doq]
 
-}
-
-if(sample_period == "great_recession"){
+} else if(sample_period == "great_recession"){
   nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) < 2010,]
   
   nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
   nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
   nowcast_results_dt_rn[, mse_news_cci:= mean(se_news_cci), by = doq]
   
-}
-
-if(sample_period == "2010s"){
+} else if(sample_period == "2010s"){
   nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) > 2009 & year(quarter) < 2020,]
   
   nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
   nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
   nowcast_results_dt_rn[, mse_news_cci:= mean(se_news_cci), by = doq]
   
-}
-
-if(sample_period == "2020s"){
-  nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) > 2019,]
+} else if(sample_period == "post_covid"){
+  nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) > 2022,]
   
   nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
   nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
@@ -269,13 +287,13 @@ if(sample_period == "2020s"){
 nowcast_rn_mse <- unique(nowcast_results_dt_rn[,.(doq, mse_pmi_bench, mse_news, mse_news_cci)])
 nowcast_rn_mse <- nowcast_rn_mse[doq < 91,] # discard days of quarter that do not exist in every quarter
 
-if (sample_period == "all"){
+if (samp == 1){
 nowcast_sample_mse <- data.table(
   doq = nowcast_rn_mse[, doq],
   sample = sample_period,
   pmi_bench = nowcast_rn_mse[, mse_pmi_bench],
   news = nowcast_rn_mse[, mse_news],
-  news_cci = nowcast_rn_mse[, mse_news_cci],
+  news_cci = nowcast_rn_mse[, mse_news_cci]
 )
 
 } else{
@@ -284,9 +302,13 @@ nowcast_sample_mse <- data.table(
     sample = sample_period,
     pmi_bench = nowcast_rn_mse[, mse_pmi_bench],
     news = nowcast_rn_mse[, mse_news],
-    news_cci = nowcast_rn_mse[, mse_news_cci],
+    news_cci = nowcast_rn_mse[, mse_news_cci]
   )
   nowcast_sample_mse <- rbind(nowcast_sample_mse_current, nowcast_sample_mse)
+}
+
+nowcast_results_dt_rn <- nowcast_results_dt[quarter == quarter_of_nc,]
+
 }
 
 
@@ -307,13 +329,14 @@ plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_news_cci)
 ggplot(data = nowcast_rn_mse, aes())
 
 # Create the ggplot
-ggplot(nowcast_rn_mse, aes(x = doq)) +
+ggplot(nowcast_sample_mse, aes(x = doq, group = sample)) +
   # Add the first time series
-  geom_line(aes(y = mse_pmi_bench, color = 'pmi')) +
+  geom_line(aes(y = pmi_bench, color = 'pmi')) +
   # Add the second time series
-  geom_line(aes(y = mse_news, color = 'news')) +
+  geom_line(aes(y = news, color = 'news')) +
   # Add the area between the two lines
-  geom_ribbon(aes(ymin = pmin(mse_pmi_bench, mse_news), ymax = pmax(mse_pmi_bench, mse_news)), fill = 'grey', alpha = 0.4) +
+  geom_ribbon(aes(ymin = pmin(pmi_bench, news), ymax = pmax(pmi_bench, news)), fill = 'grey', alpha = 0.4) +
+  facet_wrap(~ sample, ncol = 2, scales = "free_y") +
   # Add labels and title
   labs(title = 'Forecast Error throughout the Quarter',
        x = 'Day of Quarter',
@@ -321,11 +344,23 @@ ggplot(nowcast_rn_mse, aes(x = doq)) +
   # Customize the theme
   theme_minimal()+
   # Customize the colors and legend
-  scale_color_manual(name = 'OLS Model', values = c('pmi' = 'blue', 'news' = 'red')) #+
+  scale_color_manual(name = 'OLS Model', values = c('pmi' = 'blue', 'news' = 'red'))
   # Move the legend to the bottom
   # Move the legend inside the plot frame at the top right
   #theme(legend.position.inside = c(1, 1), legend.justification = c(1, 1))
-  
+
+
+ggplot(nowcast_sample_mse, aes(x = doq, y = mse, color = model)) +
+  geom_line() +
+  facet_wrap(~ sample, ncol = 2) +
+  labs(title = "Mean Squared Error of Forecast Over Time",
+       x = "Time",
+       y = "Mean Squared Error",
+       color = "Model") +
+  theme_minimal()
+
+
+
 ggsave(filename = paste0(results_path, "ols_mse.png"),
        bg = "white")
 ?ggsave
