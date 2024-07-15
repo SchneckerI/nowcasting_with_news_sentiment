@@ -46,7 +46,9 @@ nowcast_start <- which(daily_data[, day] %in% "2007-01-01") # change date of now
 nowcast_end <- nrow(daily_data) # full sample
 # nowcast_end <- which(daily_data[, day] %in% "2019-12-31") # truncate: change date of nowcast end
 
-window <- "fixed"
+window <- "expanding" # fixed
+
+same_pmi_rls <- FALSE
 
 ## loop prep
 
@@ -68,6 +70,10 @@ curr_day <- as.character(daily_data[i, day]) # i_start = 2000-01-01
 
 curr_doq <- daily_data[i, doq]
 
+if(curr_doq > 90){
+  next
+}
+
 curr_pmi_release <- daily_data[i, pmi_available]
 
 
@@ -76,6 +82,8 @@ current_daily_dt <- daily_data[1:i]
 current_nowcast_dt <- current_daily_dt
 
 current_nowcast_dt <- current_nowcast_dt[doq %in% curr_doq,] # filter for obs with same doq
+
+if(same_pmi_rls == TRUE){
 
 current_nowcast_obs <- nrow(current_nowcast_dt)
 current_discard <- current_nowcast_dt[!(pmi_available %in% curr_pmi_release),]
@@ -105,6 +113,7 @@ while(!(nrow(current_nowcast_dt) == current_nowcast_obs)){
   current_nowcast_dt <- rbind(current_add_data, current_nowcast_dt)
 }
 
+}
 
 curr_gdp_vintage <- real_time_gdp[[curr_day]]
 
@@ -129,7 +138,7 @@ if(window == "fixed"){
 if(k == 1){
   fixed_window_obs <- nrow(nowcast_in_dt)
 } else{
-  nowcast_in_dt <- nowcast_in_dt[(current_in_obs-fixed_window+1):current_in_obs,]
+  nowcast_in_dt <- nowcast_in_dt[(current_in_obs-fixed_window_obs+1):current_in_obs,]
   
 }
 
@@ -314,19 +323,19 @@ nowcast_results_dt_rn <- nowcast_results_dt[quarter == quarter_of_nc,]
 
 ## simple plot
 
-plot(nowcast_mse_next_release$doq, nowcast_mse_next_release$mse_reduction, type = "l")
-plot(nowcast_mse_nextnext_release$doq, nowcast_mse_nextnext_release$mse_reduction, type = "p")
-
-
-plot(nowcast_mse$doq, nowcast_mse$mse_reduction)
-plot(nowcast_mse$doq, nowcast_mse$mse_pmi_bench, type = "p")
-plot(nowcast_mse$doq, nowcast_mse$mse_news)
-
-plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_pmi_bench)
-plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_news)
-plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_news_cci)
-
-ggplot(data = nowcast_rn_mse, aes())
+# plot(nowcast_mse_next_release$doq, nowcast_mse_next_release$mse_reduction, type = "l")
+# plot(nowcast_mse_nextnext_release$doq, nowcast_mse_nextnext_release$mse_reduction, type = "p")
+# 
+# 
+# plot(nowcast_mse$doq, nowcast_mse$mse_reduction)
+# plot(nowcast_mse$doq, nowcast_mse$mse_pmi_bench, type = "p")
+# plot(nowcast_mse$doq, nowcast_mse$mse_news)
+# 
+# plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_pmi_bench)
+# plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_news)
+# plot(nowcast_rn_mse$doq, nowcast_rn_mse$mse_news_cci)
+# 
+# ggplot(data = nowcast_rn_mse, aes())
 
 # Create the ggplot
 ggplot(nowcast_sample_mse, aes(x = doq, group = sample)) +
