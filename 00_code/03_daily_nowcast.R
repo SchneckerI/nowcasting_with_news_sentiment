@@ -291,7 +291,7 @@ sample_period <- sample_periods[samp]
 if(sample_period == "covid"){
 nowcast_results_dt_rn <- nowcast_results_dt_rn[year(quarter) < 2023 & year(quarter) > 2019,]
 
-nowcast_results_dt_rn <- nowcast_results_dt_rn[!(quarter %in% "2020-04-01" | quarter %in% "2020-04-01"),] # exclude extreme growth rates 
+nowcast_results_dt_rn <- nowcast_results_dt_rn[!(quarter %in% "2020-04-01" | quarter %in% "2020-07-01"),] # exclude extreme growth rates 
 
 nowcast_results_dt_rn[, mse_pmi_bench:= mean(se_pmi_bench), by = doq]
 nowcast_results_dt_rn[, mse_news:= mean(se_news), by = doq]
@@ -529,11 +529,9 @@ nowcast_start <- which(daily_data[, day] %in% first_data_point) # change date of
 nowcast_end <- nrow(daily_data) # full sample
 # nowcast_end <- which(daily_data[, day] %in% "2019-12-31") # truncate: change date of nowcast end
 
-window <- "expanding" # fixed or expanding
-
 same_pmi_rls <- FALSE
 
-dfm_lags <- 2 # number of lags in dfm
+dfm_lags <- 3 # number of lags in dfm
 
 # dfm factors and shocks
 factors_shocks <- "constant" # variable or constant
@@ -859,7 +857,7 @@ for (samp in 1:length(sample_periods)) {
   if(sample_period == "covid"){
     nowcast_results_dfm_dt <- nowcast_results_dfm_dt[year(quarter) < 2023 & year(quarter) > 2019,]
     
-    nowcast_results_dfm_dt <- nowcast_results_dfm_dt[!(quarter %in% "2020-04-01" | quarter %in% "2020-04-01"),] # exclude extreme growth rates 
+    nowcast_results_dfm_dt <- nowcast_results_dfm_dt[!(quarter %in% "2020-04-01" | quarter %in% "2020-07-01"),] # exclude extreme growth rates 
     
     nowcast_results_dfm_dt[, mse_dfm_bench:= mean(se_dfm_bench), by = doq]
     nowcast_results_dfm_dt[, mse_dfm_news:= mean(se_dfm_news), by = doq]
@@ -926,8 +924,10 @@ for (samp in 1:length(sample_periods)) {
 }
 
 
+nowcast_dfm_sample_mse_new <- nowcast_dfm_sample_mse[doq < 86,] # cut away end of quarter with weird spikes
+
 # Create the ggplot
-ggplot(nowcast_dfm_sample_mse, aes(x = doq, group = sample)) +
+ggplot(nowcast_dfm_sample_mse_new, aes(x = doq, group = sample)) +
   # Add the first time series
   geom_line(aes(y = dfm_bench, color = 'bench')) +
   # Add the second time series
